@@ -157,8 +157,8 @@ if __name__ == '__main__':
                 )
 
             else:
-                # Waits 5 minutes before verifying the processes again
-                time.sleep(300)
+                # Waits 1 minutes before verifying the processes again
+                time.sleep(1*60)
 
     # Wait for remaining processes
     for process in processes:
