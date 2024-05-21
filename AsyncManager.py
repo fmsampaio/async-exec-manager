@@ -1,8 +1,8 @@
 import subprocess
 import os
 import time
-import sys
 import random
+import select
 
 class AsyncManager():
     def __init__(self, maxProcessParallel):
@@ -10,27 +10,28 @@ class AsyncManager():
         self.executionQueue = list()
         self.processes = list()
 
-    def add_execution(self, key, command, outputFile=None):
+    def addExecution(self, key, command, outputFileName=None):
         newExecution = {
             'key' : key,
             'command' : command,
-            'outputFile' : outputFile
+            'outputFileName' : outputFileName
         }
         self.executionQueue.append(newExecution)
         
 
     def start(self):
         processTotal = len(self.executionQueue)
-        processCounter = 0
+        processCounter = 0        
 
         for execution in self.executionQueue:
             command = execution['command']
             #outputFile = execution['outputFile'] if not(execution['outputFile'] is None) else subprocess.STDOUT
             
-            if execution['outputFile'] != None:
+            if execution['outputFileName'] != None:
+                execution['outputFile'] = open(execution['outputFileName'], 'w')
                 popen = subprocess.Popen(
                     command.split(),
-                    stdout = outputFile,
+                    stdout = execution['outputFile'],
                     stderr = subprocess.DEVNULL
                 )
             else:
@@ -38,13 +39,11 @@ class AsyncManager():
                     command.split(),
                     stdout = subprocess.PIPE,
                     stderr = subprocess.DEVNULL
-                )
+                )            
 
             self.processes.append({
-                'command' : command,
-                'popen' : popen, 
-                'outputFile' : execution['outputFile'],
-                'key' : execution['key']
+                'execution' : execution,
+                'popen' : popen
             })
 
             processCounter += 1
@@ -66,58 +65,63 @@ class AsyncManager():
                         finished_process = None
 
                 if finished_process is not None:
-                    outputFile = finished_process['outputFile']
-                    
-                    if not(outputFile is None):
-                        outputFile.close()
+                    outputFileName = finished_process['execution']['outputFileName']
+                    if not(outputFileName is None):
+                        finished_process['execution']['outputFile'].close()
 
                     self.processes.remove(finished_process)
 
-                    executionKey = finished_process['key']
+                    executionKey = finished_process['execution']['key']
                     print(f'[INFO] Execution ended: {executionKey}')                    
 
                 else:                    
-                    # Live presentation of stdout
-                    """
-                    for p in self.processes:
-                        if p['outputFile'] is None:
-                            process = p['popen']
-                            while True:
-                                output = process.stdout.readline()
-                                if output == '' and process.poll() is not None:
-                                    break
-                                if output:
-                                    print(output.strip())
-                    """
+                    # Live presentation of stdout           
+                    
+                    for process in self.processes:
+                        outputFileName = process['execution']['outputFileName']
+                        if outputFileName is None:
+                            popen = process['popen']
+                            key = process['execution']['key']
+                            y = select.poll()
+                            y.register(popen.stdout, select.POLLIN)
+                            if y.poll(1):
+                                print(f'[OUTPUT] {key} --> {str(popen.stdout.readline())}')
+                    
                     # Waits 1 minute before verifying the processes again
-                    time.sleep(1)
+                    #time.sleep(1)
 
         # Wait for remaining processes
         for process in self.processes:
             popen = process['popen']
-            outputFile = process['outputFile']
-            executionKey = process['key']
+            outputFileName = process['execution']['outputFile']
+            executionKey = process['execution']['key']
             
             popen.wait()
 
-            if not(outputFile is None):
-                outputFile.close()
+            if not(outputFileName is None):
+                process['execution']['outputFile'].close()
 
             print(f'[INFO] Execution ended: {executionKey}')     
 
 
-if __name__ == '__main__':
-    manager = AsyncManager(maxProcessParallel=4)
+#Test application
+
+def testApp():
+    manager = AsyncManager(maxProcessParallel=20)
 
     baseCommand = 'python3 samples/sleeper_test.py'
     for i in range(50):
         command = f'{baseCommand} {random.random() * 10}'
         key = f'SLEEP_{i}'
 
-        manager.add_execution(
+        manager.addExecution(
             key = key,
-            command = command
+            command = command,
+            outputFileName = f'samples/output/sleep_{key}.txt'
         )
     
     manager.start()
+
+if __name__ == '__main__':
+    testApp()
 
